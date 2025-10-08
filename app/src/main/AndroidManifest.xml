@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
@@ -14,8 +13,13 @@
         android:resizeableActivity="true"
         android:supportsRtl="true"
         android:theme="@style/AppTheme.MD3"
-        android:usesCleartextTraffic="true"
-        tools:targetApi="n">
+        android:usesCleartextTraffic="true">
+
+        <activity
+            android:name=".ui.full.YoutubePlayerActivity"
+            android:configChanges="orientation|screenSize|keyboardHidden|smallestScreenSize|screenLayout"
+            android:exported="false"
+            android:hardwareAccelerated="true" />
 
         <uses-library
             android:name="org.apache.http.legacy"
@@ -27,13 +31,13 @@
             android:theme="@style/AppTheme.MD3.Dark" />
 
         <activity
-            android:name="tech.salroid.filmy.ui.home.MainActivity"
+            android:name=".ui.home.MainActivity"
             android:configChanges="uiMode"
             android:exported="true"
             android:theme="@style/SplashTheme">
-
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
+
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
@@ -41,7 +45,7 @@
                 android:name="android.app.shortcuts"
                 android:resource="@xml/shortcuts" />
 
-            <intent-filter>
+            <intent-filter android:autoVerify="true">
                 <action android:name="android.intent.action.VIEW" />
 
                 <category android:name="android.intent.category.DEFAULT" />
@@ -54,42 +58,32 @@
         </activity>
 
         <activity
-            android:name="tech.salroid.filmy.ui.details.MovieDetailsActivity"
+            android:name=".ui.details.MovieDetailsActivity"
             android:label=" "
             android:theme="@style/AppTheme.MD3.Details" />
 
         <activity
-            android:name="tech.salroid.filmy.ui.cast_crew.CastCrewDetailsActivity"
+            android:name=".ui.cast_crew.CastCrewDetailsActivity"
             android:label="@string/details"
             android:theme="@style/AppTheme.MD3" />
 
         <activity
-            android:name="tech.salroid.filmy.ui.cast_crew.AllCastCrewActivity"
+            android:name=".ui.cast_crew.AllCastCrewActivity"
             android:label=" "
             android:theme="@style/AppTheme.MD3" />
 
         <activity
-            android:name="tech.salroid.filmy.ui.full.AllMoviesActivity"
+            android:name=".ui.full.AllMoviesActivity"
             android:label="@string/title_activity_full_movie"
             android:theme="@style/AppTheme.MD3" />
 
         <activity
-            android:name="tech.salroid.filmy.ui.full.FullBannerActivity"
+            android:name=".ui.full.FullBannerActivity"
             android:label=" "
             android:theme="@style/AppTheme.MD3.Dark" />
 
-        <activity android:name="tech.salroid.filmy.ui.settings.LicenseActivity" />
-        <activity android:name="tech.salroid.filmy.ui.settings.AboutActivity" />
+        <activity android:name=".ui.settings.LicenseActivity" />
+        <activity android:name=".ui.settings.AboutActivity" />
 
-        <!--  <receiver android:name=".ui.widget.FilmyWidgetProvider">
-              <intent-filter>
-                  <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
-              </intent-filter>
-
-              <meta-data
-                  android:name="android.appwidget.provider"
-                  android:resource="@xml/filmy_widget_info" />
-          </receiver>-->
     </application>
-
 </manifest>

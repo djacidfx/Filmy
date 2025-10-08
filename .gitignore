@@ -49,6 +49,10 @@ proguard/
 .idea/
 /*.iml
 *.iml
+
+.idea/*.xml
+.idea/caches/build_file_checksums.ser
+
 # Keep only shared code style (optional)
 !.idea/codeStyles/
 !.idea/codeStyles/Project.xml

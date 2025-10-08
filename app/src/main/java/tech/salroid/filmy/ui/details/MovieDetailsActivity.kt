@@ -1,8 +1,8 @@
 package tech.salroid.filmy.ui.details
 
 import android.content.Intent
+import android.content.res.Configuration
 import android.graphics.Bitmap
-import android.graphics.Color
 import android.graphics.PorterDuff
 import android.graphics.Rect
 import android.net.Uri
@@ -21,10 +21,8 @@ import androidx.preference.PreferenceManager
 import com.bumptech.glide.Glide
 import com.bumptech.glide.request.target.SimpleTarget
 import com.bumptech.glide.request.transition.Transition
-import com.google.android.youtube.player.YouTubeStandalonePlayer
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.launch
-import tech.salroid.filmy.BuildConfig
 import tech.salroid.filmy.R
 import tech.salroid.filmy.data.local.db.entity.MovieDetails
 import tech.salroid.filmy.data.local.model.RatingResponse
@@ -40,6 +38,7 @@ import tech.salroid.filmy.ui.full.FullBannerActivity.Companion.IMAGE_URL
 import tech.salroid.filmy.ui.full.FullReadFragment
 import tech.salroid.filmy.ui.full.FullReadFragment.Companion.DESCRIPTION
 import tech.salroid.filmy.ui.full.FullReadFragment.Companion.TITLE
+import tech.salroid.filmy.ui.full.YoutubePlayerActivity
 import tech.salroid.filmy.ui.home.MoviesFragment
 import tech.salroid.filmy.ui.home.MoviesFragment.Companion.DATABASE_APPLICABLE
 import tech.salroid.filmy.ui.home.MoviesFragment.Companion.MOVIE_ID
@@ -51,11 +50,13 @@ import tech.salroid.filmy.ui.similar.SimilarFragment
 import tech.salroid.filmy.ui.similar.SimilarViewModel
 import tech.salroid.filmy.utility.FilmyUtility.getStatusBarHeight
 import tech.salroid.filmy.utility.FilmyUtility.getToolBarHeight
-import tech.salroid.filmy.utility.PreferenceHelper.isDarkModeEnabled
 import tech.salroid.filmy.utility.showSnackBar
 import tech.salroid.filmy.utility.themeSystemBars
 import tech.salroid.filmy.utility.toReadableDate
 import java.text.DecimalFormat
+import androidx.core.graphics.toColorInt
+import tech.salroid.filmy.ui.full.YoutubePlayerActivity.Companion.VIDEO_ID
+import tech.salroid.filmy.ui.full.YoutubePlayerActivity.Companion.VIDEO_TITLE
 
 @AndroidEntryPoint
 class MovieDetailsActivity : AppCompatActivity() {
@@ -74,11 +75,11 @@ class MovieDetailsActivity : AppCompatActivity() {
     private var networkApplicable = false
     private var databaseApplicable = false
     private var savedDatabaseApplicable = false
-    private var trailerBoolean = false
     private var type = 0
     private var darkMode = false
     private var movieId: String? = null
-    private var trailor: String? = null
+    private var trailerFinal: String? = null
+    private var trailerTitle: String? = null
     private var trailer: String? = null
     private var movieDesc: String? = null
     private var quality: String? = null
@@ -106,7 +107,6 @@ class MovieDetailsActivity : AppCompatActivity() {
 
         binding = ActivityDetailedBinding.inflate(layoutInflater)
         setContentView(binding.root)
-        if (!darkMode) allThemeLogic() else darkModeLogic()
 
         val pref = PreferenceManager.getDefaultSharedPreferences(this@MovieDetailsActivity)
         quality = pref.getString(IMAGE_QUALITY, IMAGE_QUALITY_DEFAULT)
@@ -126,6 +126,19 @@ class MovieDetailsActivity : AppCompatActivity() {
         showCastFragment()
         showCrewFragment()
         showSimilarFragment()
+    }
+
+    private fun isDarkMode(): Boolean {
+        val preferences = PreferenceManager.getDefaultSharedPreferences(this)
+        val themeValue = preferences.getString("theme", "system")
+
+        return when (themeValue) {
+            "light" -> false
+            "dark" -> true
+            else -> { // system
+                (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+            }
+        }
     }
 
     private fun collectUiStates() {
@@ -195,7 +208,7 @@ class MovieDetailsActivity : AppCompatActivity() {
     }
 
     private fun updateTheme() {
-        darkMode = isDarkModeEnabled(this)
+        darkMode = isDarkMode()
         if (darkMode) setTheme(R.style.AppTheme_MD3_Dark_Details) else setTheme(R.style.AppTheme_MD3_Details)
     }
 
@@ -218,33 +231,33 @@ class MovieDetailsActivity : AppCompatActivity() {
                 startActivity(intent)
             }
         }
-        binding.trailorView.setOnClickListener {
-            val timeMilliSeconds = 0
-            val autoPlay = true
-            val lightBoxMode = false
-            if (trailerBoolean) startActivity(
-                YouTubeStandalonePlayer.createVideoIntent(
+
+        binding.trailerView.setOnClickListener {
+            trailerFinal?.let {
+                Intent(
                     this@MovieDetailsActivity,
-                    BuildConfig.YOUTUBE_API_KEY,
-                    trailor,
-                    timeMilliSeconds,
-                    autoPlay,
-                    lightBoxMode
-                )
-            )
-        }
-        binding.youtubeIconContainer.setOnClickListener {
-            if (trailerBoolean) {
-                supportFragmentManager.beginTransaction()
-                    .replace(
-                        R.id.motionLayout, AllTrailersFragment.newInstance(
-                            movieTitle,
-                            trailers.toTypedArray()
-                        )
-                    )
-                    .addToBackStack(AllTrailersFragment.TRAILERS)
-                    .commit()
+                    YoutubePlayerActivity::class.java
+                ).run {
+                    putExtra(VIDEO_ID, trailerFinal)
+                    putExtra(VIDEO_TITLE, trailerTitle)
+                    startActivity(this)
+                }
             }
+        }
+
+        binding.youtubeIconContainer.setOnClickListener {
+            if (trailers.isEmpty()) return@setOnClickListener
+
+            supportFragmentManager
+                .beginTransaction()
+                .replace(
+                    R.id.motionLayout,
+                    AllTrailersFragment.newInstance(
+                        movieTitle, trailers.toTypedArray()
+                    )
+                )
+                .addToBackStack(AllTrailersFragment.TRAILERS)
+                .commit()
         }
     }
 
@@ -285,43 +298,9 @@ class MovieDetailsActivity : AppCompatActivity() {
         }
     }
 
-    private fun darkModeLogic() {
-        binding.motionLayout.setBackgroundColor(Color.parseColor("#121212"))
-        binding.headerContainer.setBackgroundColor(Color.parseColor("#212121"))
-        binding.viewExtraInfo.extraDetails.setBackgroundColor(
-            ContextCompat.getColor(
-                this,
-                R.color.surfaceColorDark
-            )
-        )
-        binding.viewRatings.ratingBar.setBackgroundColor(
-            ContextCompat.getColor(
-                this,
-                R.color.surfaceColorDark
-            )
-        )
-    }
-
-    private fun allThemeLogic() {
-        binding.motionLayout.setBackgroundColor(Color.parseColor("#E0E0E0"))
-        binding.headerContainer.setBackgroundColor(resources.getColor(R.color.primaryColor))
-        binding.viewExtraInfo.extraDetails.setBackgroundColor(
-            ContextCompat.getColor(
-                this,
-                R.color.surfaceColorLight
-            )
-        )
-        binding.viewRatings.ratingBar.setBackgroundColor(
-            ContextCompat.getColor(
-                this,
-                R.color.surfaceColorLight
-            )
-        )
-    }
-
     override fun onResume() {
         super.onResume()
-        if (darkMode != isDarkModeEnabled(this)) recreate()
+        if (darkMode != isDarkMode()) recreate()
         getMovieDetails()
     }
 
@@ -371,7 +350,7 @@ class MovieDetailsActivity : AppCompatActivity() {
         movieTitleHyphen = movieTitle?.replace(' ', '-')
         movieTagline = movie.tagline
 
-        // Generes
+        // Genres
         var genre = ""
         val genreArray = movie.genres
         for (i in 0 until genreArray.size) {
@@ -402,34 +381,33 @@ class MovieDetailsActivity : AppCompatActivity() {
         val youTubeTrailers = movie.trailers?.youtube
         trailers.clear()
         youTubeTrailers?.let {
-            if (youTubeTrailers.size != 0) {
+            if (youTubeTrailers.isNotEmpty()) {
                 var mainTrailer = true
                 youTubeTrailers.forEach {
                     trailers.add(TrailerData(it.name, it.source))
                     if (mainTrailer) {
                         if (it.type == "Trailer") {
-                            trailor = it.source
+                            trailerFinal = it.source
+                            trailerTitle = it.name
                             mainTrailer = false
-                        } else trailor = youTubeTrailers[0].source
+                        } else trailerFinal = youTubeTrailers[0].source
                     }
                 }
-                trailer = resources.getString(R.string.trailer_link_prefix) + trailor
+                trailer = resources.getString(R.string.trailer_link_prefix) + trailerFinal
             } else trailer = null
         }
 
-        val trailerThumbnailUrl: String
-        if (trailor != null) {
-            trailerBoolean = true
-            trailerThumbnailUrl = getString(R.string.trailer_img_url, trailor)
+        val trailerThumbnailUrl: String = if (trailerFinal != null) {
+            getString(R.string.trailer_img_url, trailerFinal)
         } else {
-            trailerThumbnailUrl = resources.getString(R.string.poster_prefix_185) + posterPath
+            resources.getString(R.string.poster_prefix_185) + posterPath
         }
 
         binding.detailTagline.text = movie.tagline
         binding.detailTitle.text = movie.title
         binding.detailOverview.text = movie.overview
 
-        //det_rating.setText(rating)
+        // det_rating.setText(rating)
         binding.viewExtraInfo.detailRuntime.text = "${movie.runtime} mins"
         binding.viewExtraInfo.detailReleased.text = movie.releaseDate?.toReadableDate()
         binding.viewExtraInfo.detailCertification.text = genre
@@ -459,7 +437,7 @@ class MovieDetailsActivity : AppCompatActivity() {
                                 binding.detailOverview.setTextColor(swatch.bodyTextColor)
                             }
                             if (trailerSwatch != null) {
-                                binding.trailorBackground.setBackgroundColor(trailerSwatch.rgb)
+                                binding.trailerBackground.setBackgroundColor(trailerSwatch.rgb)
                                 binding.youtubeIcon.setColorFilter(
                                     trailerSwatch.bodyTextColor,
                                     PorterDuff.Mode.SRC_IN
@@ -483,7 +461,7 @@ class MovieDetailsActivity : AppCompatActivity() {
                         transition: Transition<in Bitmap?>?
                     ) {
                         binding.detailYoutube.setImageBitmap(resource)
-                        if (trailerBoolean) binding.playButton.visibility = View.VISIBLE
+                        if (trailerFinal != null) binding.playButton.visibility = View.VISIBLE
                     }
                 })
         } catch (e: Exception) {
@@ -508,6 +486,7 @@ class MovieDetailsActivity : AppCompatActivity() {
                 onBackPressed()
                 if (type == -1) startActivity(Intent(this, MainActivity::class.java))
             }
+
             R.id.action_share -> shareMovie()
             R.id.action_fav -> if (isFavourite) removeFavorite() else addFavorite()
             R.id.action_watch -> if (isWatchlist) removeWatchlist() else addWatchlist()
@@ -559,12 +538,14 @@ class MovieDetailsActivity : AppCompatActivity() {
                             R.drawable.certified
                         )
                     )
+
                     tomatoMeterScore > 59 -> binding.viewRatings.tomatoRatingImage.setImageDrawable(
                         ContextCompat.getDrawable(
                             this,
                             R.drawable.fresh
                         )
                     )
+
                     tomatoMeterScore < 60 -> binding.viewRatings.tomatoRatingImage.setImageDrawable(
                         ContextCompat.getDrawable(
                             this, R.drawable.rotten
@@ -601,15 +582,15 @@ class MovieDetailsActivity : AppCompatActivity() {
             if (metaScoreRating != null) {
                 when {
                     metaScoreRating.toInt() > 60 -> binding.viewRatings.metaRatingBackground.setBackgroundColor(
-                        Color.parseColor("#66cc33")
+                        "#66cc33".toColorInt()
                     )
+
                     metaScoreRating.toInt() in 41..60 -> binding.viewRatings.metaRatingBackground.setBackgroundColor(
-                        Color.parseColor("#ffcc33")
+                        "#ffcc33".toColorInt()
                     )
+
                     else -> binding.viewRatings.metaRatingBackground.setBackgroundColor(
-                        Color.parseColor(
-                            "#ff0000"
-                        )
+                        "#ff0000".toColorInt()
                     )
                 }
             }
