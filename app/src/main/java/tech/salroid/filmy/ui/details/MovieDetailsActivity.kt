@@ -5,21 +5,22 @@ import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.PorterDuff
 import android.graphics.Rect
+import android.graphics.drawable.Drawable
 import android.net.Uri
 import android.os.Bundle
 import android.view.Menu
 import android.view.MenuItem
 import android.view.View
-import android.view.ViewGroup
+import androidx.activity.addCallback
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
+import androidx.browser.customtabs.CustomTabColorSchemeParams
 import androidx.browser.customtabs.CustomTabsIntent
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.palette.graphics.Palette
 import androidx.preference.PreferenceManager
 import com.bumptech.glide.Glide
-import com.bumptech.glide.request.target.SimpleTarget
 import com.bumptech.glide.request.transition.Transition
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.launch
@@ -48,13 +49,17 @@ import tech.salroid.filmy.ui.home.MoviesFragment.Companion.NETWORK_APPLICABLE
 import tech.salroid.filmy.ui.home.MoviesFragment.Companion.SAVED_DATABASE_APPLICABLE
 import tech.salroid.filmy.ui.similar.SimilarFragment
 import tech.salroid.filmy.ui.similar.SimilarViewModel
-import tech.salroid.filmy.utility.FilmyUtility.getStatusBarHeight
 import tech.salroid.filmy.utility.FilmyUtility.getToolBarHeight
 import tech.salroid.filmy.utility.showSnackBar
 import tech.salroid.filmy.utility.themeSystemBars
 import tech.salroid.filmy.utility.toReadableDate
 import java.text.DecimalFormat
 import androidx.core.graphics.toColorInt
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.updateLayoutParams
+import com.bumptech.glide.request.target.CustomTarget
 import tech.salroid.filmy.ui.full.YoutubePlayerActivity.Companion.VIDEO_ID
 import tech.salroid.filmy.ui.full.YoutubePlayerActivity.Companion.VIDEO_TITLE
 
@@ -105,6 +110,9 @@ class MovieDetailsActivity : AppCompatActivity() {
         updateTheme()
         super.onCreate(savedInstanceState)
 
+        // For Backward Compatibility
+        WindowCompat.enableEdgeToEdge(window)
+
         binding = ActivityDetailedBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
@@ -113,6 +121,7 @@ class MovieDetailsActivity : AppCompatActivity() {
 
         updateToolBar()
         themeSystemBars(!darkMode)
+        addBackPressListener()
         updateToolBarScrims()
         setupListeners()
         getDataFromIntent(intent)
@@ -164,32 +173,34 @@ class MovieDetailsActivity : AppCompatActivity() {
             }
         }
         lifecycleScope.launch {
-            viewModel.uiStateUpdateCollection.collect { (updatedID, message, remove) ->
-                if (updatedID > 0) {
-                    if (remove) {
-                        if (message == WATCHLIST) isWatchlist = false
-                        if (message == FAVOURITES) isFavourite = false
-
-                        binding.backdrop.showSnackBar(
-                            "Movie removed from $message",
-                            positive = false
-                        )
+            viewModel.updateResult.collect { result ->
+                if (result.actionFavorite) {
+                    val message = if (result.updatedFavoriteState) {
+                        "Movie added to favorites."
                     } else {
-                        if (message == WATCHLIST) isWatchlist = true
-                        if (message == FAVOURITES) isFavourite = true
-                        binding.backdrop.showSnackBar("Movie added to $message")
+                        "Movie removed from favorites."
                     }
-
-                    invalidateOptionsMenu()
-                } else if (updatedID != -1) {
-                    // Movie is not in db but as it's going to be in watchlist/fav
-                    // we should save the all movie details
-                    viewModel.saveMovieDetailsInDb(
-                        movieDetails,
-                        addedToCollection = true,
-                        message = message
+                    binding.backdrop.showSnackBar(
+                        message,
+                        positive = result.updatedFavoriteState
                     )
                 }
+
+                if (result.actionWatchlist) {
+                    val message = if (result.updatedWatchlistState) {
+                        "Movie added to watchlist."
+                    } else {
+                        "Movie removed from watchlist."
+                    }
+                    binding.backdrop.showSnackBar(
+                        message,
+                        positive = result.updatedWatchlistState
+                    )
+                }
+
+                isFavourite = result.updatedFavoriteState
+                isWatchlist = result.updatedWatchlistState
+                invalidateOptionsMenu()
             }
         }
 
@@ -205,11 +216,33 @@ class MovieDetailsActivity : AppCompatActivity() {
     private fun updateToolBar() {
         setSupportActionBar(binding.toolbar)
         supportActionBar?.setDisplayHomeAsUpEnabled(true)
+
+        // Set a listener to respond to window insets
+        ViewCompat.setOnApplyWindowInsetsListener(binding.toolbar) { view, insets ->
+            val systemBarInsets = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+
+            view.setPadding(
+                systemBarInsets.left,
+                systemBarInsets.top,
+                systemBarInsets.right,
+                0
+            )
+
+            val toolBarScrimHeight = systemBarInsets.top + getToolBarHeight(this)
+            binding.toolBarScrimStart.updateLayoutParams {
+                height = toolBarScrimHeight
+            }
+            binding.toolBarScrimEnd.updateLayoutParams {
+                height = toolBarScrimHeight
+            }
+
+            insets
+        }
     }
 
     private fun updateTheme() {
         darkMode = isDarkMode()
-        if (darkMode) setTheme(R.style.AppTheme_MD3_Dark_Details) else setTheme(R.style.AppTheme_MD3_Details)
+        if (darkMode) setTheme(R.style.AppTheme_MD3_Dark_Details) else setTheme(R.style.AppTheme_MD3)
     }
 
     private fun setupListeners() {
@@ -262,14 +295,6 @@ class MovieDetailsActivity : AppCompatActivity() {
     }
 
     private fun updateToolBarScrims() {
-        val toolBarScrimHeight = getStatusBarHeight(this) + getToolBarHeight(this)
-        val toolbarScrimStartParams =
-            binding.toolBarScrimStart.layoutParams as ViewGroup.LayoutParams
-        val toolbarScrimEndParams =
-            binding.toolBarScrimEnd.layoutParams as ViewGroup.LayoutParams
-        toolbarScrimStartParams.height = toolBarScrimHeight
-        toolbarScrimEndParams.height = toolBarScrimHeight
-
         binding.backdrop.viewTreeObserver.addOnScrollChangedListener {
             val rect = Rect()
             binding.backdrop.let {
@@ -291,7 +316,8 @@ class MovieDetailsActivity : AppCompatActivity() {
             networkApplicable = it.getBooleanExtra(NETWORK_APPLICABLE, false)
             databaseApplicable = it.getBooleanExtra(DATABASE_APPLICABLE, false)
             savedDatabaseApplicable = it.getBooleanExtra(SAVED_DATABASE_APPLICABLE, false)
-            val movieType = it.getSerializableExtra(MOVIE_TYPE) as? MoviesFragment.MovieType
+            val movieType =
+                it.getSerializableExtra(MOVIE_TYPE, MoviesFragment.MovieType::class.java)
             type = movieType?.ordinal ?: 0
             movieId = it.getStringExtra(MOVIE_ID)
             movieTitle = it.getStringExtra(MOVIE_TITLE)
@@ -419,7 +445,7 @@ class MovieDetailsActivity : AppCompatActivity() {
             Glide.with(this)
                 .asBitmap()
                 .load(bannerTop)
-                .into(object : SimpleTarget<Bitmap?>() {
+                .into(object : CustomTarget<Bitmap?>() {
                     override fun onResourceReady(
                         resource: Bitmap,
                         transition: Transition<in Bitmap?>?
@@ -446,22 +472,30 @@ class MovieDetailsActivity : AppCompatActivity() {
                             }
                         }
                     }
+
+                    override fun onLoadCleared(placeholder: Drawable?) {
+                        // no - op
+                    }
                 })
         } catch (e: Exception) {
-            //Log.d(LOG_TAG, e.getMessage());
+            e.printStackTrace()
         }
 
         try {
             Glide.with(this)
                 .asBitmap()
                 .load(trailerThumbnailUrl)
-                .into(object : SimpleTarget<Bitmap?>() {
+                .into(object : CustomTarget<Bitmap?>() {
                     override fun onResourceReady(
                         resource: Bitmap,
                         transition: Transition<in Bitmap?>?
                     ) {
                         binding.detailYoutube.setImageBitmap(resource)
                         if (trailerFinal != null) binding.playButton.visibility = View.VISIBLE
+                    }
+
+                    override fun onLoadCleared(placeholder: Drawable?) {
+                        // no-op
                     }
                 })
         } catch (e: Exception) {
@@ -483,13 +517,13 @@ class MovieDetailsActivity : AppCompatActivity() {
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
         when (item.itemId) {
             android.R.id.home -> {
-                onBackPressed()
+                onBackPressedDispatcher.onBackPressed()
                 if (type == -1) startActivity(Intent(this, MainActivity::class.java))
             }
 
             R.id.action_share -> shareMovie()
-            R.id.action_fav -> if (isFavourite) removeFavorite() else addFavorite()
-            R.id.action_watch -> if (isWatchlist) removeWatchlist() else addWatchlist()
+            R.id.action_fav -> updateMovieStatus(isTogglingFavorite = true)
+            R.id.action_watch -> updateMovieStatus(isTogglingWatchlist = true)
         }
         return super.onOptionsItemSelected(item)
     }
@@ -613,46 +647,34 @@ class MovieDetailsActivity : AppCompatActivity() {
         }
     }
 
-    private fun addWatchlist() {
-        movieDetails.watchlist = true
-        movieDetails.type = type
-        viewModel.updateMovieDetailsInDb(movieDetails, WATCHLIST, false)
-    }
-
-    private fun addFavorite() {
-        movieDetails.favorite = true
-        movieDetails.type = type
-        viewModel.updateMovieDetailsInDb(movieDetails, FAVOURITES, false)
-    }
-
-    private fun removeWatchlist() {
-        movieDetails.watchlist = false
-        movieDetails.type = type
-        viewModel.updateMovieDetailsInDb(movieDetails, WATCHLIST, true)
-    }
-
-    private fun removeFavorite() {
-        movieDetails.favorite = false
-        movieDetails.type = type
-        viewModel.updateMovieDetailsInDb(movieDetails, FAVOURITES, true)
-    }
-
-    fun setRatingGone() {
-        binding.viewRatings.ratingBar.visibility = View.GONE
+    private fun updateMovieStatus(
+        isTogglingFavorite: Boolean = false,
+        isTogglingWatchlist: Boolean = false
+    ) {
+        viewModel.updateMovieStatus(
+            isTogglingFavorite = isTogglingFavorite,
+            isTogglingWatchlist = isTogglingWatchlist
+        )
     }
 
     private fun openCustomTabIntent(url: String, color: Int) {
         val builder = CustomTabsIntent.Builder()
-        builder.setToolbarColor(ContextCompat.getColor(this@MovieDetailsActivity, color))
+        val params = CustomTabColorSchemeParams.Builder()
+            .setToolbarColor(ContextCompat.getColor(this, color))
+            .build()
+        builder.setDefaultColorSchemeParams(params)
         val customTabsIntent = builder.build()
         customTabsIntent.launchUrl(this, Uri.parse(url))
     }
 
-    override fun onBackPressed() {
-        if (supportFragmentManager.backStackEntryCount == 0) {
-            super.onBackPressed()
-        } else {
-            supportFragmentManager.popBackStack()
+    private fun addBackPressListener() {
+        onBackPressedDispatcher.addCallback(this) {
+            if (supportFragmentManager.backStackEntryCount > 0) {
+                supportFragmentManager.popBackStack()
+            } else {
+                isEnabled = false
+                onBackPressedDispatcher.onBackPressed()
+            }
         }
     }
 
